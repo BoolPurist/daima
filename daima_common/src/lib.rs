@@ -2,6 +2,7 @@ pub mod constants;
 
 mod file_lock_one_process_only;
 
+mod binary_parsing;
 pub type AppError = anyhow::Error;
 pub type AppResult<T = ()> = Result<T, AppError>;
 
