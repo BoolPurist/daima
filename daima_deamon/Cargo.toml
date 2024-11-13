@@ -1,0 +1,10 @@
+[package]
+name = "daima_deamon"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+daima_common = { path = "../daima_common" }
+
+env_logger = "0.11.5"
+log.workspace = true

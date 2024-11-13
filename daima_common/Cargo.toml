@@ -1,0 +1,9 @@
+[package]
+name = "daima_common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+fslock = "0.2.1"
+log.workspace = true
+anyhow.workspace = true

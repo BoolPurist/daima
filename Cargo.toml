@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "daima_deamon",
+    "daima_cli", 
+    "daima_common",
+]
+
+[workspace.dependencies]
+
+log = "0.4.22"
+anyhow = { version = "1.0.93", features = [ "backtrace" ] }
