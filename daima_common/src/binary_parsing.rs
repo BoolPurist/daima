@@ -1,8 +1,13 @@
 // TODO: remove allow dead_code when used
 #![allow(dead_code)]
 
+use std::usize;
+
 type NumberBytesSize = u64;
 type TypeTagSize = u16;
+const SHIF_AMOUNT: NumberBytesSize = 7;
+const NEXT_NUMBER_OF_BYTES_MASK: NumberBytesSize = 0b0111_1111;
+const CONTINUEATION_BYTE_MASK: NumberBytesSize = 0b1000_0000;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParsedBinaryStream {
@@ -46,9 +51,14 @@ impl<'s> ByteStreamReadingState<'s> {
                 mut current_number_of_bytes,
             } => {
                 while !current_stream.is_empty() {
-                    let next_byte = current_stream[0];
+                    let next_byte = current_stream[0] as NumberBytesSize;
                     current_stream = &current_stream[1..];
-                    if next_byte == 0b0 {
+                    let (is_last_byte, to_append) = (
+                        (next_byte & CONTINUEATION_BYTE_MASK) != CONTINUEATION_BYTE_MASK,
+                        next_byte & NEXT_NUMBER_OF_BYTES_MASK,
+                    );
+                    current_number_of_bytes |= to_append << (shift_counter * SHIF_AMOUNT);
+                    if is_last_byte {
                         return ByteStreamReadingState::TypeTag {
                             number_of_bytes_payload: current_number_of_bytes,
                             number_of_read_tap_type_bytes: 0,
@@ -56,8 +66,6 @@ impl<'s> ByteStreamReadingState<'s> {
                         }
                         .advance(current_stream);
                     }
-                    let bitmask = next_byte as NumberBytesSize;
-                    current_number_of_bytes |= bitmask << (shift_counter * 8);
                     shift_counter += 1;
                 }
                 ByteStreamReadingState::Length {
@@ -96,21 +104,22 @@ impl<'s> ByteStreamReadingState<'s> {
                 type_tag,
                 mut payload_as_bytes,
             }) => {
-                while !current_stream.is_empty() {
-                    let next_byte = current_stream[0];
-                    current_stream = &current_stream[1..];
-                    payload_as_bytes.push(next_byte);
-
-                    if payload_as_bytes.len() == number_of_bytes_payload as usize {
-                        return ByteStreamReadingState::Done {
-                            parsed: ParsedBinaryStream {
-                                number_of_bytes_payload,
-                                type_tag,
-                                payload_as_bytes,
-                            },
-                            rest: current_stream,
-                        };
-                    }
+                let next_bytes_len = current_stream.len() as NumberBytesSize;
+                let left_bytes_to_read = number_of_bytes_payload as usize - payload_as_bytes.len();
+                let next_slice_upper_bound =
+                    next_bytes_len.min(left_bytes_to_read as NumberBytesSize) as usize;
+                let next_bytes = &current_stream[0..next_slice_upper_bound];
+                current_stream = &current_stream[next_slice_upper_bound..];
+                payload_as_bytes.extend_from_slice(next_bytes);
+                if payload_as_bytes.len() == number_of_bytes_payload as usize {
+                    return ByteStreamReadingState::Done {
+                        parsed: ParsedBinaryStream {
+                            number_of_bytes_payload,
+                            type_tag,
+                            payload_as_bytes,
+                        },
+                        rest: current_stream,
+                    };
                 }
 
                 ByteStreamReadingState::PayLoad(ParsedBinaryStream {
@@ -149,22 +158,17 @@ mod testing {
             let actual = ByteStreamReadingState::start(input);
             assert_eq!(expected, actual, "Input {:?}\n", input);
         }
+        // 000_0010 | 000_0010
+        // 00000_001 0000_0010
         assert_case(
-            &[0b0000_0010, 0b0000_0010],
+            &[0b1000_0010, 0b1000_0010],
             ByteStreamReadingState::Length {
                 shift_counter: 2,
-                current_number_of_bytes: 514,
+                current_number_of_bytes: 258,
             },
         );
         assert_case(
             &[0b0001_0101],
-            ByteStreamReadingState::Length {
-                shift_counter: 1,
-                current_number_of_bytes: 21,
-            },
-        );
-        assert_case(
-            &[0b0001_0101, 0],
             ByteStreamReadingState::TypeTag {
                 number_of_bytes_payload: 21,
                 wip_type_tag: 0,
@@ -172,19 +176,33 @@ mod testing {
             },
         );
         assert_case(
-            &[0b0001_0101, 0b0, 0b1],
+            &[0b1001_0101],
+            ByteStreamReadingState::Length {
+                shift_counter: 1,
+                current_number_of_bytes: 21,
+            },
+        );
+        assert_case(
+            &[0b0001_0101, 0b0101],
             ByteStreamReadingState::TypeTag {
                 number_of_bytes_payload: 21,
-                wip_type_tag: 1,
+                wip_type_tag: 5,
                 number_of_read_tap_type_bytes: 1,
             },
+        );
+        assert_case(
+            &[0b0001_0101, 0b0, 0b1],
+            ByteStreamReadingState::PayLoad(ParsedBinaryStream {
+                number_of_bytes_payload: 21,
+                type_tag: 256,
+                payload_as_bytes: Vec::new(),
+            }),
         );
         assert_case(
             &[
                 // number of bytes
                 0b0000_0011,
                 // end of number of payload bytes
-                0b0,
                 // tag
                 0b011,
                 0b0,
