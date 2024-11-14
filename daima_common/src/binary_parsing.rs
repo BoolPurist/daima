@@ -3,11 +3,19 @@
 
 use std::usize;
 
-type NumberBytesSize = u64;
+type NumberBytesSize = usize;
 type TypeTagSize = u16;
-const SHIF_AMOUNT: NumberBytesSize = 7;
+
+const SHIFT_NUMBER_OF_BYTE_PAYLOAD: NumberBytesSize = 7;
+const SHIFT_AMOUNT_TYPETAG: TypeTagSize = 8;
+
 const NEXT_NUMBER_OF_BYTES_MASK: NumberBytesSize = 0b0111_1111;
 const CONTINUEATION_BYTE_MASK: NumberBytesSize = 0b1000_0000;
+
+const NUMBER_OF_TYPE_TAG_BYTES: TypeTagSize = 2;
+
+const AFTER_NEXT_SINGLE_BYTE: NumberBytesSize = 1;
+const NEXT_SINGLE_BYTE: NumberBytesSize = 0;
 
 #[derive(Debug, PartialEq, Eq)]
 struct ParsedBinaryStream {
@@ -51,13 +59,16 @@ impl<'s> ByteStreamReadingState<'s> {
                 mut current_number_of_bytes,
             } => {
                 while !current_stream.is_empty() {
-                    let next_byte = current_stream[0] as NumberBytesSize;
-                    current_stream = &current_stream[1..];
+                    // u8 is always large enought for a usize for safe casting
+                    let next_byte = current_stream[NEXT_SINGLE_BYTE] as NumberBytesSize;
+                    current_stream = &current_stream[AFTER_NEXT_SINGLE_BYTE..];
+
                     let (is_last_byte, to_append) = (
                         (next_byte & CONTINUEATION_BYTE_MASK) != CONTINUEATION_BYTE_MASK,
                         next_byte & NEXT_NUMBER_OF_BYTES_MASK,
                     );
-                    current_number_of_bytes |= to_append << (shift_counter * SHIF_AMOUNT);
+                    current_number_of_bytes |=
+                        to_append << (shift_counter * SHIFT_NUMBER_OF_BYTE_PAYLOAD);
                     if is_last_byte {
                         return ByteStreamReadingState::TypeTag {
                             number_of_bytes_payload: current_number_of_bytes,
@@ -79,16 +90,17 @@ impl<'s> ByteStreamReadingState<'s> {
                 mut number_of_read_tap_type_bytes,
             } => {
                 while !current_stream.is_empty() {
-                    let next_byte = current_stream[0];
-                    current_stream = &current_stream[1..];
+                    let next_byte = current_stream[NEXT_SINGLE_BYTE];
+                    current_stream = &current_stream[AFTER_NEXT_SINGLE_BYTE..];
                     let bitmask = next_byte as u16;
-                    wip_type_tag |= bitmask << (number_of_read_tap_type_bytes * 8u16);
+                    wip_type_tag |=
+                        bitmask << (number_of_read_tap_type_bytes * SHIFT_AMOUNT_TYPETAG);
                     number_of_read_tap_type_bytes += 1;
-                    if number_of_read_tap_type_bytes == 2 {
+                    if number_of_read_tap_type_bytes == NUMBER_OF_TYPE_TAG_BYTES {
                         return ByteStreamReadingState::PayLoad(ParsedBinaryStream {
                             number_of_bytes_payload,
                             type_tag: wip_type_tag,
-                            payload_as_bytes: Vec::with_capacity(number_of_bytes_payload as usize),
+                            payload_as_bytes: Vec::with_capacity(number_of_bytes_payload),
                         })
                         .advance(current_stream);
                     }
@@ -104,14 +116,13 @@ impl<'s> ByteStreamReadingState<'s> {
                 type_tag,
                 mut payload_as_bytes,
             }) => {
-                let next_bytes_len = current_stream.len() as NumberBytesSize;
-                let left_bytes_to_read = number_of_bytes_payload as usize - payload_as_bytes.len();
-                let next_slice_upper_bound =
-                    next_bytes_len.min(left_bytes_to_read as NumberBytesSize) as usize;
-                let next_bytes = &current_stream[0..next_slice_upper_bound];
+                let next_bytes_len = current_stream.len();
+                let left_bytes_to_read = number_of_bytes_payload - payload_as_bytes.len();
+                let next_slice_upper_bound = next_bytes_len.min(left_bytes_to_read);
+                let next_bytes = &current_stream[NEXT_SINGLE_BYTE..next_slice_upper_bound];
                 current_stream = &current_stream[next_slice_upper_bound..];
                 payload_as_bytes.extend_from_slice(next_bytes);
-                if payload_as_bytes.len() == number_of_bytes_payload as usize {
+                if payload_as_bytes.len() == number_of_bytes_payload {
                     return ByteStreamReadingState::Done {
                         parsed: ParsedBinaryStream {
                             number_of_bytes_payload,
