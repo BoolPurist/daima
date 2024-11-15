@@ -3,29 +3,43 @@
 
 use std::usize;
 
+use crate::{
+    constants::{
+        NEXT_NUMBER_OF_BYTES_MASK, NUMBER_OF_TYPE_TAG_BYTES, SHIFT_AMOUNT_TYPETAG,
+        SHIFT_NUMBER_OF_BYTE_PAYLOAD,
+    },
+    TypeTagSize,
+};
+
 type NumberBytesSize = usize;
-type TypeTagSize = u16;
 
-const SHIFT_NUMBER_OF_BYTE_PAYLOAD: NumberBytesSize = 7;
-const SHIFT_AMOUNT_TYPETAG: TypeTagSize = 8;
-
-const NEXT_NUMBER_OF_BYTES_MASK: NumberBytesSize = 0b0111_1111;
 const CONTINUEATION_BYTE_MASK: NumberBytesSize = 0b1000_0000;
-
-const NUMBER_OF_TYPE_TAG_BYTES: TypeTagSize = 2;
-
 const AFTER_NEXT_SINGLE_BYTE: NumberBytesSize = 1;
 const NEXT_SINGLE_BYTE: NumberBytesSize = 0;
 
 #[derive(Debug, PartialEq, Eq)]
-struct ParsedBinaryStream {
+pub struct ParsedBinaryStream {
     number_of_bytes_payload: NumberBytesSize,
     type_tag: TypeTagSize,
     payload_as_bytes: Vec<u8>,
 }
 
+impl ParsedBinaryStream {
+    pub fn number_of_bytes_payload(&self) -> usize {
+        self.number_of_bytes_payload
+    }
+
+    pub fn type_tag(&self) -> u16 {
+        self.type_tag
+    }
+
+    pub fn payload_as_bytes(&self) -> &[u8] {
+        &self.payload_as_bytes
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
-enum ByteStreamReadingState<'s> {
+pub enum ByteStreamReadingState<'s> {
     Length {
         shift_counter: NumberBytesSize,
         current_number_of_bytes: NumberBytesSize,
@@ -43,7 +57,7 @@ enum ByteStreamReadingState<'s> {
 }
 
 impl<'s> ByteStreamReadingState<'s> {
-    fn start(stream: &'s [u8]) -> Self {
+    pub fn start(stream: &'s [u8]) -> Self {
         let not_started = ByteStreamReadingState::Length {
             shift_counter: 0,
             current_number_of_bytes: 0,
