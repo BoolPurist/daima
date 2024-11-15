@@ -1,6 +1,6 @@
 use std::usize;
 
-use crate::constants::{CONTINUEATION_BYTE_MASK, ONE_BYTE_BIT_MASK, SHIFT_AMOUNT_TYPETAG};
+use crate::constants::CONTINUEATION_BYTE_MASK;
 const SEVEN_BIT_MASK: usize = 0b0111_1111;
 
 pub fn size_to_bytes_sequence(mut size: usize) -> Vec<u8> {
@@ -19,14 +19,6 @@ pub fn size_to_bytes_sequence(mut size: usize) -> Vec<u8> {
             return to_return;
         }
     }
-}
-
-pub fn u16_to_bytes(mut value: u16) -> [u8; 2] {
-    const ONE_BYTE_BIT_MASK_U16: u16 = ONE_BYTE_BIT_MASK as u16;
-    let right = (value & ONE_BYTE_BIT_MASK_U16) as u8;
-    value >>= SHIFT_AMOUNT_TYPETAG;
-    let left = (value & ONE_BYTE_BIT_MASK_U16) as u8;
-    [left, right]
 }
 
 #[cfg(test)]

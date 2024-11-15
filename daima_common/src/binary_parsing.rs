@@ -3,13 +3,7 @@
 
 use std::usize;
 
-use crate::{
-    constants::{
-        NEXT_NUMBER_OF_BYTES_MASK, NUMBER_OF_TYPE_TAG_BYTES, SHIFT_AMOUNT_TYPETAG,
-        SHIFT_NUMBER_OF_BYTE_PAYLOAD,
-    },
-    TypeTagSize,
-};
+use crate::constants::{NEXT_NUMBER_OF_BYTES_MASK, SHIFT_NUMBER_OF_BYTE_PAYLOAD};
 
 type NumberBytesSize = usize;
 
@@ -20,17 +14,12 @@ const NEXT_SINGLE_BYTE: NumberBytesSize = 0;
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsedBinaryStream {
     number_of_bytes_payload: NumberBytesSize,
-    type_tag: TypeTagSize,
     payload_as_bytes: Vec<u8>,
 }
 
 impl ParsedBinaryStream {
     pub fn number_of_bytes_payload(&self) -> usize {
         self.number_of_bytes_payload
-    }
-
-    pub fn type_tag(&self) -> u16 {
-        self.type_tag
     }
 
     pub fn payload_as_bytes(&self) -> &[u8] {
@@ -43,11 +32,6 @@ pub enum ByteStreamReadingState<'s> {
     Length {
         shift_counter: NumberBytesSize,
         current_number_of_bytes: NumberBytesSize,
-    },
-    TypeTag {
-        number_of_bytes_payload: NumberBytesSize,
-        number_of_read_tap_type_bytes: u16,
-        wip_type_tag: TypeTagSize,
     },
     PayLoad(ParsedBinaryStream),
     Done {
@@ -84,11 +68,10 @@ impl<'s> ByteStreamReadingState<'s> {
                     current_number_of_bytes |=
                         to_append << (shift_counter * SHIFT_NUMBER_OF_BYTE_PAYLOAD);
                     if is_last_byte {
-                        return ByteStreamReadingState::TypeTag {
+                        return ByteStreamReadingState::PayLoad(ParsedBinaryStream {
                             number_of_bytes_payload: current_number_of_bytes,
-                            number_of_read_tap_type_bytes: 0,
-                            wip_type_tag: 0,
-                        }
+                            payload_as_bytes: Vec::with_capacity(current_number_of_bytes),
+                        })
                         .advance(current_stream);
                     }
                     shift_counter += 1;
@@ -98,36 +81,8 @@ impl<'s> ByteStreamReadingState<'s> {
                     current_number_of_bytes,
                 }
             }
-            ByteStreamReadingState::TypeTag {
-                number_of_bytes_payload,
-                mut wip_type_tag,
-                mut number_of_read_tap_type_bytes,
-            } => {
-                while !current_stream.is_empty() {
-                    let next_byte = current_stream[NEXT_SINGLE_BYTE];
-                    current_stream = &current_stream[AFTER_NEXT_SINGLE_BYTE..];
-                    let bitmask = next_byte as u16;
-                    wip_type_tag |=
-                        bitmask << (number_of_read_tap_type_bytes * SHIFT_AMOUNT_TYPETAG);
-                    number_of_read_tap_type_bytes += 1;
-                    if number_of_read_tap_type_bytes == NUMBER_OF_TYPE_TAG_BYTES {
-                        return ByteStreamReadingState::PayLoad(ParsedBinaryStream {
-                            number_of_bytes_payload,
-                            type_tag: wip_type_tag,
-                            payload_as_bytes: Vec::with_capacity(number_of_bytes_payload),
-                        })
-                        .advance(current_stream);
-                    }
-                }
-                ByteStreamReadingState::TypeTag {
-                    number_of_bytes_payload,
-                    wip_type_tag,
-                    number_of_read_tap_type_bytes,
-                }
-            }
             ByteStreamReadingState::PayLoad(ParsedBinaryStream {
                 number_of_bytes_payload,
-                type_tag,
                 mut payload_as_bytes,
             }) => {
                 let next_bytes_len = current_stream.len();
@@ -140,7 +95,6 @@ impl<'s> ByteStreamReadingState<'s> {
                     return ByteStreamReadingState::Done {
                         parsed: ParsedBinaryStream {
                             number_of_bytes_payload,
-                            type_tag,
                             payload_as_bytes,
                         },
                         rest: current_stream,
@@ -149,7 +103,6 @@ impl<'s> ByteStreamReadingState<'s> {
 
                 ByteStreamReadingState::PayLoad(ParsedBinaryStream {
                     number_of_bytes_payload,
-                    type_tag,
                     payload_as_bytes,
                 })
             }
@@ -193,14 +146,6 @@ mod testing {
             },
         );
         assert_case(
-            &[0b0001_0101],
-            ByteStreamReadingState::TypeTag {
-                number_of_bytes_payload: 21,
-                wip_type_tag: 0,
-                number_of_read_tap_type_bytes: 0,
-            },
-        );
-        assert_case(
             &[0b1001_0101],
             ByteStreamReadingState::Length {
                 shift_counter: 1,
@@ -209,28 +154,15 @@ mod testing {
         );
         assert_case(
             &[0b0001_0101, 0b0101],
-            ByteStreamReadingState::TypeTag {
-                number_of_bytes_payload: 21,
-                wip_type_tag: 5,
-                number_of_read_tap_type_bytes: 1,
-            },
-        );
-        assert_case(
-            &[0b0001_0101, 0b0, 0b1],
             ByteStreamReadingState::PayLoad(ParsedBinaryStream {
                 number_of_bytes_payload: 21,
-                type_tag: 256,
-                payload_as_bytes: Vec::new(),
+                payload_as_bytes: vec![0b0101],
             }),
         );
         assert_case(
             &[
                 // number of bytes
                 0b0000_0011,
-                // end of number of payload bytes
-                // tag
-                0b011,
-                0b0,
                 // payload
                 0b1,
                 0b11,
@@ -241,7 +173,6 @@ mod testing {
             ByteStreamReadingState::Done {
                 parsed: ParsedBinaryStream {
                     number_of_bytes_payload: 3,
-                    type_tag: 3,
                     payload_as_bytes: vec![0b1, 0b11, 0b111],
                 },
                 rest: &[0b1111_1111],
